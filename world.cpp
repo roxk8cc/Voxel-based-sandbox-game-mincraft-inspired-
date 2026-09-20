@@ -2,6 +2,94 @@
 #include "raylib.h"
 #include <ctime>
 #include <cstdlib>
+#include "rlgl.h"
+
+float World::fade(float t)
+{
+    return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+float World::lerp(float t, float a, float b)
+{
+    return a + t * (b - a);
+}
+
+float World::grad(int hash, float x, float z)
+{
+    int h = hash & 15; 
+    float u = h < 8 ? x : z;
+    float v = h < 4 ? z : (h == 12 || h == 14 ? x : z);
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+
+float World::grad3d(int hash, float x, float y, float z)
+{
+    int h = hash & 15;
+    float u = h < 8 ? x : y;
+    float v = h < 4 ? y : (h == 12 || h == 14 ? x : z);
+    return ((h & 1) ? -u : u) + ((h & 2) ? -v : v);
+}
+
+float World::perlin_noise(float x, float z)
+{
+    int X = (int)floor(x) & 255;
+    int Z = (int)floor(z) & 255;
+
+    x -= floor(x);
+    z -= floor(z);
+
+    float u = fade(x);
+    float v = fade(z);
+
+    auto get_hash = [](int xi, int zi) 
+    {
+        unsigned int h = (unsigned int)xi * 374761393 + (unsigned int)zi * 668265263; 
+        h = (h ^ (h >> 13)) * 1274126177;
+        return h ^ (h >> 16);
+    };
+    int aa = get_hash(X, Z);
+    int ab = get_hash(X, Z + 1);
+    int ba = get_hash(X + 1, Z);
+    int bb = get_hash(X + 1, Z + 1);
+    return lerp(v, lerp(u, grad(aa, x, z), grad(ba, x - 1, z)), lerp(u, grad(ab, x, z - 1), grad(bb, x - 1, z - 1)));
+}
+
+float World::perlin_noise_3d(float x, float y, float z)
+{
+    int X = (int)floor(x) & 255;
+    int Y = (int)floor(y) & 255;
+    int Z = (int)floor(z) & 255;
+
+    x -= floor(x);
+    y -= floor(y);
+    z -= floor(z);
+
+    float u = fade(x);
+    float v = fade(y);
+    float w = fade(z);
+
+    auto get_hash_3d = [](int xi, int yi, int zi)
+    {
+        unsigned int h = (unsigned int)xi * 374761393 + (unsigned int)yi * 668265263 + (unsigned int)zi * 1445635377;
+        h = (h ^ (h >> 13)) * 1274126177;
+        return h ^ (h >> 16);
+    };
+
+    int aaa = get_hash_3d(X, Y, Z);
+    int aba = get_hash_3d(X, Y + 1, Z);
+    int aab = get_hash_3d(X, Y, Z + 1);
+    int abb = get_hash_3d(X, Y + 1, Z + 1);
+    int baa = get_hash_3d(X + 1, Y, Z);
+    int bba = get_hash_3d(X + 1, Y + 1, Z);
+    int bab = get_hash_3d(X + 1, Y, Z + 1);
+    int bbb = get_hash_3d(X + 1, Y + 1, Z + 1);
+
+    return lerp(w,lerp(v,lerp(u, grad3d(aaa, x, y, z), grad3d(baa, x - 1, y, z)),
+        lerp(u, grad3d(aba, x, y - 1, z), grad3d(bba, x - 1, y - 1, z))),
+        lerp(v,lerp(u, grad3d(aab, x, y, z - 1), grad3d(bab, x - 1, y, z - 1)),
+        lerp(u, grad3d(abb, x, y - 1, z - 1), grad3d(bbb, x - 1, y - 1, z - 1)))
+    );
+}
 
 void World::allocate_world()
 {
@@ -150,24 +238,40 @@ float World::value_noise_3d(float x, float y, float z)
 
 int World::get_terrain_height(int x, int z)
 {
-    float scale = 0.08f; //zooming the noise map
-    float noise = value_noise(x * scale, z * scale);
+    float warp_strength = 18.0f;
+    float warp_x = perlin_noise(x * 0.01f, z * 0.01f) * warp_strength;
+    float warp_z = perlin_noise((x + 1000) * 0.01f, (z + 1000) * 0.01f) * warp_strength;
     
-    //range remapping
-    float remapped_noise = noise * 2.0f - 1.0f; 
+    float warped_x = x + warp_x;
+    float warped_z = z + warp_z;
     
-    int baseheight = HEIGHT / 2;
-    //Amplitude Control
-    int variation = (int)(remapped_noise * 8.0f); 
-    int height = baseheight + variation;
+    float total = 0.0f;
+    float frequency = 0.055f;
+    float amplitude = 1.0f;
+    float max_value = 0.0f;
     
+    int octaves = 5;
+    float persistence = 0.50f;
+
+    for(int i = 0; i < octaves; i++)
+    {
+        total += perlin_noise((warped_x + 12345) * frequency, (warped_z + 12345) * frequency) * amplitude;
+        max_value += amplitude;
+        amplitude *= persistence;
+        frequency *= 2.0f;
+    }
+
+    float heightMap = total / max_value; 
+    int base_height = 20; 
+    int max_variation = 16;
+    int height = base_height + (int)(heightMap * max_variation);
     if(height < GROUND_BUFFER)
     {
         height = 5;
     }
     if(height >= HEIGHT - SKY_BUFFER)
     {
-        height = HEIGHT - SKY_BUFFER + 1;
+        height = HEIGHT - SKY_BUFFER;
     }
     return height;
 }
@@ -178,7 +282,6 @@ World::World()
     allocate_world();
     generate_world();
 }
-
         
 Block World::get_block(int x, int y, int z)
 {
@@ -219,13 +322,13 @@ int World::get_height()
 void World::render_trees()
 {
     srand(time(NULL));
-    for(int i = 0; i < 120; i++)
+    for(int i = 0; i < 200; i++)
     {
         int x = 5 + rand() % (SIZE - 10);
         int z = 5 + rand() % (SIZE - 10);
         int ground = get_terrain_height(x, z);
         
-        if(ground >= 23 && blocks[get_index(x, ground, z)].get_type() == GRASS)
+        if(ground >= 20 && blocks[get_index(x, ground, z)].get_type() == GRASS)
         {
             int tree_height = 4 + rand() % 3;
             
@@ -238,23 +341,23 @@ void World::render_trees()
             }
             
             int top_y = ground + tree_height;
-            for(int dx = -2; dx <= 2; dx++)
+            for(int delta_x = -2; delta_x <= 2; delta_x++)
             {
-                for(int dz = -2; dz <= 2; dz++)
+                for(int delta_z = -2; delta_z <= 2; delta_z++)
                 {
-                    for(int dy = 0; dy <= 2; dy++)
+                    for(int delta_y = 0; delta_y <= 2; delta_y++)
                     {
-                        int nx = x + dx;
-                        int nz = z + dz;
-                        int ny = top_y + dy;
+                        int leaf_x = x + delta_x;
+                        int leaf_z = z + delta_z;
+                        int leaf_y = top_y + delta_y;
                         
-                        if(nx >= 0 && nx < SIZE && nz >= 0 && nz < SIZE && ny < HEIGHT)
+                        if(leaf_x >= 0 && leaf_x < SIZE && leaf_z >= 0 && leaf_z < SIZE && leaf_y < HEIGHT)
                         {
-                            if(blocks[get_index(nx,ny,nz)].get_type() == AIR)
+                            if(blocks[get_index(leaf_x,leaf_y,leaf_z)].get_type() == AIR)
                             {
-                                if((abs(dx) <= 1 && abs(dz) <= 1) || dy > 0)
+                                if((abs(delta_x) <= 1 && abs(delta_z) <= 1) || delta_y > 0)
                                     {
-                                        blocks[get_index(nx, ny, nz)].set_type(GRASS);
+                                        blocks[get_index(leaf_x, leaf_y, leaf_z)].set_type(LEAVES);
                                     }
                             }
                         }
@@ -267,7 +370,7 @@ void World::render_trees()
 
 void World::generate_world()
 {
-    // Initialize the world to AIR
+    
     for(int x = 0; x < SIZE; x++)
     {
         for(int y = 0; y < HEIGHT; y++)
@@ -278,11 +381,9 @@ void World::generate_world()
             }
         }
     }
-    //Deal with terrain
 
-    float cave_scale = 0.1f;    // 缩放：值越大，洞穴越细碎
-    float cave_threshold = 0.73f; // 阈值：值越大，洞穴越少 (建议 0.7 - 0.8)
-
+    float cave_scale = 0.2f; 
+    float cave_threshold = 0.7f; 
     for(int x = 0; x < SIZE; x++)
         {
             for(int z = 0; z < SIZE; z++)
@@ -304,7 +405,7 @@ void World::generate_world()
                     }
                 }
                 
-                if(height >= 23)
+                if(height >= 19)
                 {
                     blocks[get_index(x, height, z)] = Block(GRASS);
                 }
@@ -313,7 +414,7 @@ void World::generate_world()
                     blocks[get_index(x, height, z)] = Block(SAND);
                 }
                 
-                for(int y = 1; y <= 22; y++)
+                for(int y = 1; y <= 18; y++)
                 {
                     if(blocks[get_index(x,y,z)].get_type() == AIR)
                     {
@@ -321,27 +422,119 @@ void World::generate_world()
                     }
                 }
                  for(int y = 1; y <= height; y++)
-            {
-                int idx = get_index(x, y, z);
-                
-                // 只有当前的方块不是水也不是基岩时，才考虑挖洞
-                if (blocks[idx].get_type() != WATER && blocks[idx].get_type() != BEDROCK)
                 {
-                    float noise3d = value_noise_3d(x * cave_scale, y * cave_scale, z * cave_scale);
-                    
-                    if (noise3d > cave_threshold) {
-                        blocks[idx] = Block(AIR); // 挖成空气
+                    int idx = get_index(x, y, z);
+                    if (blocks[idx].get_type() != WATER && blocks[idx].get_type() != BEDROCK)
+                    {
+                        float noise3d = value_noise_3d(x * cave_scale, y * cave_scale, z * cave_scale);
+                        
+                        if (noise3d > cave_threshold)
+                        {
+                            blocks[idx] = Block(AIR);
+                        }
                     }
                 }
             }
-            }
         }
         render_trees();
-
     for(int x = 0; x < SIZE; x++)
-            for(int y = 0; y < HEIGHT; y++)
-                for(int z = 0; z < SIZE; z++)
-                    update_block_visible(x, y, z); 
+    {        
+        for(int y = 0; y < HEIGHT; y++)
+        {
+            for(int z = 0; z < SIZE; z++)
+            {
+                update_block_visible(x, y, z); 
+            }
+        }
+    }
+}
+
+void World::DrawBlock(Texture2D texture, Vector3 position, Block& block) 
+{
+    if (!block.has_texture())
+    {
+        DrawCube(position, 1.0f, 1.0f, 1.0f, block.get_color());
+        return;
+    }
+    float x = position.x;
+    float y = position.y;
+    float z = position.z;
+    float s = 0.5f;
+    float u_step = 1.0f / 4.0f; 
+    float v_step = 1.0f / 3.0f; 
+
+    rlSetTexture(texture.id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(255, 255, 255, 255);
+
+    Vector2 side_UV = block.get_uv_offset(FACE_SIDE);
+    float u = side_UV.x * u_step;
+    float v = side_UV.y * v_step;
+
+    //offset of top side
+    Vector2 top_UV = block.get_uv_offset(FACE_TOP);
+    float top_u = top_UV.x * u_step;
+    float top_v = top_UV.y * v_step;
+    rlTexCoord2f(top_u, top_v);
+    rlVertex3f(x - s, y + s, z - s);
+    rlTexCoord2f(top_u, top_v + v_step);
+    rlVertex3f(x - s, y+s, z+s);
+    rlTexCoord2f(top_u + u_step, top_v + v_step); 
+    rlVertex3f(x+s, y+s, z+s);
+    rlTexCoord2f(top_u + u_step, top_v);
+    rlVertex3f(x+s, y+s, z - s);
+
+    //offset of top side
+    Vector2 botUV = block.get_uv_offset(FACE_BOTTOM);
+    float bu = botUV.x * u_step;
+    float bv = botUV.y * v_step;
+    rlTexCoord2f(bu, bv);
+    rlVertex3f(x - s, y - s, z - s);
+    rlTexCoord2f(bu+u_step, bv);
+    rlVertex3f(x + s, y - s, z - s);
+    rlTexCoord2f(bu + u_step, bv + v_step);
+    rlVertex3f(x + s, y - s, z + s);
+    rlTexCoord2f(bu, bv + v_step);
+    rlVertex3f(x - s, y - s, z + s);
+
+    rlTexCoord2f(u, v + v_step);
+    rlVertex3f(x - s, y - s, z+s);
+    rlTexCoord2f(u + u_step, v + v_step);
+    rlVertex3f(x+s, y - s, z + s);
+    rlTexCoord2f(u  +  u_step, v);
+    rlVertex3f(x + s, y + s, z + s);
+    rlTexCoord2f(u, v);
+    rlVertex3f(x - s, y + s, z + s);
+
+    rlTexCoord2f(u, v  +  v_step);
+    rlVertex3f(x - s, y - s, z - s);
+    rlTexCoord2f(u + u_step, v + v_step);
+    rlVertex3f(x - s, y - s, z + s);
+    rlTexCoord2f(u + u_step, v);
+    rlVertex3f(x - s, y + s, z +s );
+    rlTexCoord2f(u, v);
+    rlVertex3f(x - s, y+s, z - s);
+
+    rlTexCoord2f(u, v + v_step);
+    rlVertex3f(x+s, y - s, z+s);
+    rlTexCoord2f(u + u_step, v + v_step);
+    rlVertex3f(x+s, y - s, z - s);
+    rlTexCoord2f(u + u_step, v);
+    rlVertex3f(x+s, y+s, z - s);
+    rlTexCoord2f(u, v);
+    rlVertex3f(x + s, y + s, z + s);
+   
+    rlTexCoord2f(u, v  +  v_step);
+    rlVertex3f(x + s, y - s, z - s); 
+    rlTexCoord2f(u  +  u_step, v  +  v_step);
+    rlVertex3f(x - s, y - s, z - s);
+    rlTexCoord2f(u  +  u_step, v);
+    rlVertex3f(x - s, y + s, z - s);
+    rlTexCoord2f(u, v);
+    rlVertex3f(x + s, y + s, z - s);
+        
+    rlEnd();
+    rlSetTexture(0);
 }
 
 void World::render(Vector player_pos)
@@ -377,12 +570,63 @@ void World::render(Vector player_pos)
                 {
                     continue;
                 }
-
                 Block block = blocks[get_index(x, y, z)];
                 if(block.is_solid() && block.is_visible())
                 {
                     DrawCube({(float)x, (float)y, (float)z}, 1.0f, 1.0f, 1.0f, block.get_color());
                     DrawCubeWires({(float)x, (float)y, (float)z}, 1.0f, 1.0f, 1.0f, BLACK);
+                }
+            }
+        }
+    }
+}
+
+void World::render(Vector player_pos, std::map<BlockType, Texture2D>& block_textures)
+{
+    int min_x = player_pos.x - RENDER_DISTANCE;
+    int max_x = player_pos.x + RENDER_DISTANCE;
+    int min_z = player_pos.z - RENDER_DISTANCE;
+    int max_z = player_pos.z + RENDER_DISTANCE;
+    
+    if(min_x < 0)
+    {
+        min_x = 0;
+    }
+    if(max_x >= SIZE)
+    {
+        max_x = SIZE - 1;
+    }
+    if(min_z < 0)
+    {
+        min_z = 0;
+    }
+    if(max_z >= SIZE)
+    {
+        max_z = SIZE - 1;
+    }
+
+    for(int x = min_x; x <= max_x; x++) 
+    {
+        for(int z = min_z; z <= max_z; z++) 
+        {
+            for(int y = 0; y < HEIGHT; y++)
+            {
+                if(y - player_pos.y > 25 || y - player_pos.y < -25)
+                    continue;
+
+                Block& block = blocks[get_index(x, y, z)];
+                if(block.is_solid() && block.is_visible())
+                {
+                    auto it = block_textures.find(block.get_type());
+                    if(it != block_textures.end() && it-> second.id > 0)
+                    {
+                        DrawBlock(it->second, {(float)x, (float)y, (float)z}, block);
+                    }
+                    else
+                    {
+                        DrawCube({(float)x, (float)y, (float)z}, 1.0f, 1.0f, 1.0f, block.get_color());
+                        DrawCubeWires({(float)x, (float)y, (float)z}, 1.0f, 1.0f, 1.0f, BLACK);
+                    }
                 }
             }
         }

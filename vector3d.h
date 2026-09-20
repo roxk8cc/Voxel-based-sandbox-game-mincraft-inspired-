@@ -71,7 +71,4 @@ Vector normalize_vec(const Vector &a);
  */
 Vector cross(const Vector& a, const Vector& b);
 
-
-//Vector3 toRaylib() const { return {x, y, z}; }
-
 #endif

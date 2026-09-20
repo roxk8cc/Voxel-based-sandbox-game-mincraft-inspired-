@@ -35,7 +35,7 @@ class Camera3d
          * Constructs a camera at a specific starting position.
          * @param pos The initial Vector position for the camera.
          */
-        Camera3d(Vector pos);
+        Camera3d(Vector position);
         
         /**
          * Rotates the camera view by adding offsets to yaw and pitch.
@@ -79,8 +79,7 @@ class Camera3d
          * Gets the current look-direction.
          * @return Vector The normalized forward vector.
          */
-        Vector get_forward();
-    
+        Vector get_forward(); 
 };
 
 #endif

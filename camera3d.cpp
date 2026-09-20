@@ -25,9 +25,9 @@ Camera3d::Camera3d()
     pitch = 0.0f;
 }
 
-Camera3d::Camera3d(Vector pos) 
+Camera3d::Camera3d(Vector position) 
 {
-    position = pos;
+    this->position = position;
     yaw = -90.0f;
     pitch = 0.0f;
     update_vectors();
@@ -64,26 +64,26 @@ Vector Camera3d::get_forward_XZ()
 
 Camera3D Camera3d::to_raylib_camera() 
 {
-    Camera3D cam = { 0 };
+    Camera3D camera = { 0 };
 
-    cam.position.x = (float)position.x;
-    cam.position.y = (float)position.y;
-    cam.position.z = (float)position.z;
+    camera.position.x = (float)position.x;
+    camera.position.y = (float)position.y;
+    camera.position.z = (float)position.z;
 
     Vector target_vector = add_vec(position, forward);
     
-    cam.target.x = (float)target_vector.x;
-    cam.target.y = (float)target_vector.y;
-    cam.target.z = (float)target_vector.z;
+    camera.target.x = (float)target_vector.x;
+    camera.target.y = (float)target_vector.y;
+    camera.target.z = (float)target_vector.z;
 
-    cam.up.x = 0.0f;
-    cam.up.y = 1.0f;
-    cam.up.z = 0.0f;
+    camera.up.x = 0.0f;
+    camera.up.y = 1.0f;
+    camera.up.z = 0.0f;
 
-    cam.fovy = 70.0f;                       
-    cam.projection = CAMERA_PERSPECTIVE;
+    camera.fovy = 70.0f;                       
+    camera.projection = CAMERA_PERSPECTIVE;
 
-    return cam;
+    return camera;
 }
 
 Vector Camera3d::get_position()

@@ -18,9 +18,9 @@ class Player
         
     public:
 
-        static constexpr float PLAYER_WIDTH = 0.6;
+        static constexpr float PLAYER_WIDTH = 0.5;
         static constexpr float PLAYER_HEIGHT = 1.8;
-        static constexpr int JUMP_SPEED = 6;
+        static constexpr int JUMP_SPEED = 7;
 
         /**
          * A default constructor.

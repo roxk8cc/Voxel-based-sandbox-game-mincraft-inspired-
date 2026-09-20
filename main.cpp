@@ -7,16 +7,14 @@
 #include "raylib.h"
 #include <cmath>
 
-// clang++ main.cpp vector3d.cpp player.cpp camera3d.cpp block.cpp world.cpp game.cpp entity.cpp\
-//     -o game5 \
+// clang++ main.cpp vector3d.cpp player.cpp camera3d.cpp block.cpp world.cpp \
+//     game.cpp entity.cpp menu.cpp savemanager.cpp fluidsimulator.cpp \
+//     -o game \
 //     -I/opt/homebrew/include \
 //     -L/opt/homebrew/lib \
 //     -lraylib \
-//     -framework OpenGL \
-//     -framework Cocoa \
-//     -framework IOKit \
-//     -framework CoreAudio \
-//     -framework CoreVideo \
+//     -framework OpenGL -framework Cocoa -framework IOKit \
+//     -framework CoreAudio -framework CoreVideo \
 //     -std=c++17
 
 int main() 

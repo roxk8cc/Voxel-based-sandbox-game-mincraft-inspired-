@@ -4,7 +4,7 @@
 #include "raylib.h" 
 
 /**
- * All the types of block.
+ * @enum the types of block.
  */
 enum BlockType 
 {
@@ -15,12 +15,23 @@ enum BlockType
     SAND,
     WATER,
     DIRT,
-    BEDROCK
+    BEDROCK,
+    LEAVES
+};
+
+/**
+ * @enum All faces of the block
+ */
+enum BlockFace
+{
+    FACE_TOP, 
+    FACE_BOTTOM,
+    FACE_SIDE
 };
 
 /**
  * @class Block
- * @brief It represent the a basic block unit in the world.
+ * A block unit in the world.
  */
 class Block
 {
@@ -67,9 +78,16 @@ class Block
 
         /**
          * Sets whether the object should be rendered.
-         * @param v: True to show the object, false to hide it.
+         * @param visible True to show the object, false to hide it.
          */
-        void set_visible(bool v);
+        void set_visible(bool visible);
+
+        /**
+         * Used for texture mapping when rendering.
+         * @param face The face of the block
+         * @return Vector2 containing UV offset
+         */
+        Vector2 get_uv_offset(BlockFace face);
 
         /**
          * Return the color of the block.
@@ -77,6 +95,11 @@ class Block
          */
         Color get_color();
 
-};
+        /**
+         * Check whether the block has a valid texture.
+         * @return True if texture exists, False if nullptr
+         */
+        bool has_texture();
 
+};
 #endif

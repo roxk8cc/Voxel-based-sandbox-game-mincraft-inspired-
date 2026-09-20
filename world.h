@@ -3,6 +3,7 @@
 
 #include "block.h"
 #include "vector3d.h"
+#include <map>
 
 /**
  * @class World
@@ -14,7 +15,7 @@ class World
         static const int RENDER_DISTANCE = 40;
         static const int GROUND_BUFFER = 5;
         static const int SKY_BUFFER = 5;
-        static const int SIZE = 80;
+        static const int SIZE = 100;
         static const int HEIGHT = 50;
         Block* blocks;
 
@@ -52,9 +53,60 @@ class World
          */
         int get_terrain_height(int x, int z);
     
+        /**
+         * Generates a pseudo-random number based on coordinates and a seed
+         */
         float hashrandom(int x, int z, int seed);
 
+        /**
+         * 2D value noise, produces smooth random values for (x, z)
+         */
         float value_noise(float x, float z);
+
+        /**
+         * 3D value noise produces smooth random values for (x, y, z)
+         */
+        float value_noise_3d(float x, float y, float z);
+
+        /**
+         * Smooth fade function used in Perlin noise for smooth interpolation
+         */
+        float fade(float t);
+
+        /**
+         * Linear interpolation function, computes value between a and b by t
+         */
+        float lerp(float t, float a, float b);
+
+        /**
+         * 2D Perlin noise gradient function, generates directional contribution
+         */
+        float grad(int hash, float x, float z);
+
+        /**
+         * 3D Perlin noise gradient function, generates directional contribution
+         */
+        float grad3d(int hash, float x, float y, float z);
+
+        /**
+         * 2D Perlin noise function, produces smooth random height or variation
+         */
+        float perlin_noise(float x, float z);
+
+        /**
+         * 3D Perlin noise function, produces smooth random values for volume or fluid
+         */
+        float perlin_noise_3d(float x, float y, float z);
+
+        /**
+         * Generate the terrain of the wold.
+         */
+        void generate_world();
+
+        /**
+         * Render trees within the world
+         */
+        void render_trees();
 
     public:
 
@@ -92,6 +144,7 @@ class World
          */
         void render(Vector player_pos);
     
+        void render(Vector player_pos, std::map<BlockType, Texture2D>& block_textures);
         /**
          * Gets the size of the world.
          * @return The value of the SIZE.
@@ -103,15 +156,14 @@ class World
          * @return The value of the HEIGHT.
          */
         int get_height();
-        
+
         /**
-         * Generate the world.
+         * Draw a single block at a specific position with a texture.
+         * @param texture The texture to apply to the block when rendering.
+         * @param position The 3D position of the block in the world.
+         * @param block The block object containing type and other properties.
          */
-        void generate_world();
-
-        void render_trees();
-
-        float value_noise_3d(float x, float y, float z);
+        void DrawBlock(Texture2D texture, Vector3 position, Block& block);
 };
 
 #endif

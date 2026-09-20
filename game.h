@@ -2,8 +2,13 @@
 #define GAME_H
 
 #include "world.h"
+#include <map>
 #include "player.h"
 #include "entity.h"
+#include "savemanager.h"
+#include "menu.h"
+#include "gamestate.h"
+#include "fluidsimulator.h"
 #include <vector>
 
 /**
@@ -17,14 +22,25 @@ class Game
         static const int SCREEN_HEIGHT = 720;
         static const int TARGET_FPS = 60;
         static const int GRAVITY = 20;
+        //day and night
         float day_night_timer;
         float cycle_duration;
-        bool is_day;
+
+        //menu game states
+        GameState game_state;
+        Menu menu;
+        bool game_initialized;
+        bool is_show_notification;
+        float notification_timer;
+        std::string notification_text;
+        Color notification_color;
 
         World world;
         Player player;
+        FluidSimulator* fluid_simulator;
         std::vector<BlockType> hotbar_items;
         std::vector<Entity*> entities;
+        std::map<BlockType, Texture2D> block_textures;
 
         /**
          * Handle the movement of player.
@@ -45,6 +61,11 @@ class Game
          * Integrate all input handling together.
          */
         void handle_input();
+
+        /** 
+         * Calculate the progress of the day/night cycle. 
+         */
+        float get_day_progress();
 
         /**
          * Display the block that player choose in the hotbar.
@@ -125,7 +146,53 @@ class Game
          */
         float get_darkness();
 
+        /** 
+         * Handle attacks or interactions between entities. 
+         */
         void handle_entity_attack();
+
+        /** 
+         * Initialize the game world for a new session.
+         */
+        void init_game_world();
+
+        /** 
+         * Handle menu input and transitions between game states
+         */
+        void handle_menu();
+
+        /** 
+         * Save the current game state to a save slot.
+         */
+        void save();
+
+        /** 
+         * Load the game state from a save slot. 
+         */
+        void load();
+
+        /**
+         * Show a notification on screen.
+         * @param message Text to display
+         * @param color Notification color
+         * @param duration Time to display
+         */
+        void show_notification(const std::string& message,Color color, float duration = 3.0f);
+
+        /** 
+         * Update notification timers and display messages on screen.
+         */
+        void display_notifications(float deltatime);
+
+        /**
+         * Load all block and entity textures into memory
+         */
+        void load_texture();
+        
+        /**
+         * Unload all textures from memory to free resources. 
+         * */
+        void unload_texture();
 
     public:
 
@@ -138,6 +205,7 @@ class Game
          * Render the game world and UI.
          */
         void display_game();
+
 };
 
 #endif

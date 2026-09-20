@@ -3,6 +3,7 @@
 #include "player.h"
 #include "raylib.h"
 #include "vector3d.h"
+#include "savemanager.h"
 
 void Game::handle_camera()
 {
@@ -174,7 +175,12 @@ void Game::handle_block_interaction()
             {
                 if(y != 0)
                 {
+                    if(block.get_type() == WATER)
+                    {
+                        fluid_simulator->remove_water(x,y,z);
+                    }
                     world.set_block(x, y, z, AIR);
+                    fluid_simulator->on_block_changed(x,y,z);
                 }
             }
             else if(IsKeyPressed(KEY_ENTER)) 
@@ -185,6 +191,11 @@ void Game::handle_block_interaction()
                 int px = (int)round(prev_positision.x);
                 int py = (int)round(prev_positision.y);
                 int pz = (int)round(prev_positision.z);
+                BlockType selected = player.get_selected_block();
+                if(selected == WATER)
+                {
+                    fluid_simulator->add_water(px, py, pz, false);
+                }
                 world.set_block(px, py, pz, player.get_selected_block());
             }
             break;
@@ -287,9 +298,8 @@ void Game::handle_gravity(float deltatime)
 
 bool Game::check_collision(Vector position)
 {
-    float epsilon = 0.5;
+    float epsilon = 0.05;
     float half_width = Player::PLAYER_WIDTH / 2;
-
     
     int min_x = (int)floor(position.x - half_width);
     int max_x = (int)floor(position.x + half_width);
@@ -436,7 +446,6 @@ void Game::update_entities(float deltatime)
             {
                 villager->set_target(player_pos);
             }
-            
             entities[i]->update(deltatime, world);
         }
     }
@@ -472,7 +481,6 @@ void Game::handle_entity_attack()
             }
         }
     }
-    
     if(closest_entity != nullptr)
     {
         Vector player_position = camera.get_position();
@@ -514,51 +522,49 @@ void Game::update_day_night(float deltatime)
 {
     day_night_timer += deltatime;
     
-    if(day_night_timer >= cycle_duration / 2.0f)
+    if(day_night_timer >= cycle_duration)
     {
-        day_night_timer = 0.0f;
-        is_day = !is_day;
+        day_night_timer -= cycle_duration;
     }
+}
+
+float Game::get_day_progress()
+{
+    float t = day_night_timer / cycle_duration;
+    return 0.5f * (1.0f + std::sin(t * 2.0f * 3.1415926f + 3.1415926f/2.0f));
 }
 
 Color Game::get_sky_color()
 {
-    Color day_sky = {135, 206, 235, 255};
+    Color day_sky   = {135, 206, 235, 255};
     Color night_sky = {10, 10, 40, 255};
+    float time = get_day_progress();
+    unsigned char red = (unsigned char)(night_sky.r * (1 - time) + day_sky.r * time);
+    unsigned char green = (unsigned char)(night_sky.g * (1 - time) + day_sky.g * time);
+    unsigned char blue = (unsigned char)(night_sky.b * (1 - time) + day_sky.b * time);
 
-    float transition = day_night_timer / (cycle_duration / 2.0f);
-    
-    if(is_day)
-    {
-        return (Color){(unsigned char)(day_sky.r - transition * 50),(unsigned char)(day_sky.g - transition * 50),(unsigned char)(day_sky.b - transition * 80),255};
-    }
-    else
-    {
-        return (Color){(unsigned char)(night_sky.r + transition * 50),(unsigned char)(night_sky.g + transition * 50),(unsigned char)(night_sky.b + transition * 80),255};
-    }
+    return {red, green, blue, 255};
 }
 
 float Game::get_darkness()
 {
     const float MAX_DARKNESS = 150.0f;
-    float transition = day_night_timer / (cycle_duration / 2.0f);
-    
-    if(is_day)
-    {
-        return transition * MAX_DARKNESS;
-    }
-    else
-    {
-        return MAX_DARKNESS - transition * MAX_DARKNESS;
-    }
+    float t = get_day_progress(); 
+    return (1.0f - t) * MAX_DARKNESS;
 }
 
 Game::Game()
 {
     day_night_timer = 0;
-    cycle_duration = 300;
-    is_day = true;
+    cycle_duration = 600;
     hotbar_items = {GRASS, STONE, WOOD, SAND, WATER, DIRT, BEDROCK};
+    game_state = MAIN_MENU;
+    game_initialized = false;
+    is_show_notification = false;
+    notification_timer = 0.0f;
+    notification_text = "";
+    notification_color = YELLOW;
+    fluid_simulator = new FluidSimulator(&world);
 }
 
 void Game::draw_crosshair()
@@ -568,49 +574,241 @@ void Game::draw_crosshair()
     DrawLine(crosshair_x - 10, crosshair_y, crosshair_x + 10, crosshair_y, WHITE);
     DrawLine(crosshair_x, crosshair_y - 10, crosshair_x, crosshair_y + 10, WHITE);
     DrawCircle(crosshair_x, crosshair_y, 2, WHITE);
+}
 
+void Game::handle_menu()
+{
+    static GameState last_state = MAIN_MENU;
+    static int last_selected_slot = -1;
+
+    int current_selected_slot = menu.get_selected_slot();
+
+    if (game_state == SAVE_MENU && current_selected_slot >= 0 && current_selected_slot != last_selected_slot)
+    {
+        save();
+        menu.clear_input_buffer();
+        last_selected_slot = current_selected_slot;
+    }
+    else if (game_state == LOAD_MENU && current_selected_slot >= 0 && current_selected_slot != last_selected_slot)
+    {
+        menu.clear_input_buffer();
+        load();
+        last_selected_slot = current_selected_slot;
+        menu.set_state(PLAYING);
+        game_state = PLAYING;
+        DisableCursor();
+    }
+    if (game_state != last_state)
+    {
+        if (game_state == SAVE_MENU || game_state == LOAD_MENU)
+        {
+            last_selected_slot = -1;
+        }
+    }
+
+    // Handle cursor and world initialization on state change
+    if (game_state != last_state)
+    {
+        if (game_state == PLAYING)
+        {
+            DisableCursor();
+            if (last_state == MAIN_MENU)
+            {
+                init_game_world();
+            }
+        }
+        else
+        {
+            EnableCursor();
+        }
+    }
+    last_state = game_state;
+}
+
+void Game::save()
+{
+    int slot = menu.get_selected_slot();
+    if(slot < 0)
+    {
+        show_notification("No slot selected!", RED, 3.0f);
+        return;
+    }
+    std::string filename = menu.get_slot_filename(slot);
+
+    bool success = Savemanager::save_world(world, filename);
+    if (success)
+    {
+        show_notification("Game saved to Slot " + std::to_string(slot + 1) + "!", GREEN, 3.0f);
+        menu.refresh_save_slots();
+    }
+    else
+    {
+        show_notification("Failed to save game!", RED, 3.0f);
+    }
+}
+
+void Game::load()
+{
+    int slot = menu.get_selected_slot();
+    if (slot < 0)
+    {
+        show_notification("No slot selected!", RED,3.0f);
+        return;
+    }
+    
+    std::string filename = menu.get_slot_filename(slot);
+    
+    if (!Savemanager::save_exists(filename))
+    {
+        show_notification("Save file not found!", RED, 3.0f);
+        return;
+    }
+    
+    bool success = Savemanager::load_world(world, filename);
+    if (success)
+    {
+        show_notification("Game loaded from Slot " + std::to_string(slot + 1) + "!", GREEN, 3.0f);
+        game_initialized = true;
+        menu.refresh_save_slots();
+    }
+    else
+    {
+        show_notification("Failed to load game!", RED, 3.0f);
+    }
+}
+
+void Game::show_notification(const std::string& message, Color color, float duration)
+{
+    notification_text = message;
+    notification_timer = duration;
+    notification_color = color;
+    is_show_notification = true;
+}
+
+void Game::display_notifications(float deltatime)
+{
+    if (is_show_notification)
+    {
+        if (deltatime > 0)
+        {
+            notification_timer -= deltatime;
+        }
+        if (notification_timer <= 0)
+        {
+            is_show_notification = false;
+        }
+        else
+        {
+            float alpha = notification_timer < 1.0f ? notification_timer : 1.0f;
+            int text_width = MeasureText(notification_text.c_str(), 30);
+            int x = (SCREEN_WIDTH - text_width) / 2;
+            int y = 50;
+            DrawText(notification_text.c_str(), x + 2, y + 2, 30, Fade(BLACK, alpha));
+            DrawText(notification_text.c_str(), x, y, 30, Fade(notification_color, alpha));
+        }
+    }
+}
+
+void Game::init_game_world()
+{
+    if(!game_initialized)
+    {
+        generate_entities();
+        game_initialized = true;
+    }
+}
+
+void Game::load_texture()
+{
+    const char* base_path = "textures/";
+    block_textures[GRASS] = LoadTexture((std::string(base_path) + "grass.png").c_str());
+    block_textures[STONE] = LoadTexture((std::string(base_path) + "stone.png").c_str());
+    block_textures[LEAVES] = LoadTexture((std::string(base_path) + "leave.png").c_str());
+    block_textures[WOOD] = LoadTexture((std::string(base_path) + "wood.png").c_str());
+    block_textures[SAND] = LoadTexture((std::string(base_path) + "sand.png").c_str());
+    block_textures[DIRT] = LoadTexture((std::string(base_path) + "dirt.png").c_str());
+    block_textures[BEDROCK] = LoadTexture((std::string(base_path) + "bedrock.png").c_str());
+}
+
+void Game::unload_texture()
+{
+    for (auto& pair : block_textures) 
+    {
+        UnloadTexture(pair.second);
+    }
+    block_textures.clear();
 }
 
 void Game::display_game()
 {
-    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Iteration 3");
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "WEN RONGXIN 36522163 HD project");
     SetTargetFPS(60);
-    DisableCursor();
+    game_state = MAIN_MENU;
 
-    generate_entities();
+   load_texture();
 
     while(!WindowShouldClose()) 
     {
 
         float deltatime = GetFrameTime();
-        update_day_night(deltatime);
+        game_state = menu.get_state();
+        handle_menu();
 
         BeginDrawing();
-        ClearBackground(get_sky_color());
-        
-        BeginMode3D(player.get_camera());
-        
-        Vector pos = player.get_camera_ref().get_position();
-        world.render(pos);
-        render_entities();
 
-        EndMode3D();
-        float darkness = get_darkness();
-        if(darkness > 0)
+        if(game_state == PLAYING)
         {
-            DrawRectangle(0,0,SCREEN_WIDTH, SCREEN_HEIGHT, (Color){0,0,0,(unsigned char)darkness});
+            if(IsKeyPressed(KEY_LEFT_CONTROL))
+            {
+                menu.set_state(PAUSE_MENU);
+                game_state = PAUSE_MENU;
+            }
+            else
+            {
+                update_day_night(deltatime);
+                handle_input();
+
+                if(fluid_simulator != nullptr)
+                {
+                    fluid_simulator->update(deltatime);
+                }
+                ClearBackground(get_sky_color());
+                
+                BeginMode3D(player.get_camera());
+                
+                Vector pos = player.get_camera_ref().get_position();
+                world.render(pos, block_textures);
+                render_entities();
+                EndMode3D();
+
+                float darkness = get_darkness();
+                if(darkness > 0)
+                {
+                    DrawRectangle(0,0,SCREEN_WIDTH, SCREEN_HEIGHT, (Color){0,0,0,(unsigned char)darkness});
+                }
+
+                draw_crosshair();
+                
+                handle_gravity(deltatime);
+                update_entities(deltatime);
+                display_hotbar();
+                display_notifications(deltatime);
+            }
         }
-
-        draw_crosshair();
-        
-        handle_gravity(deltatime);
-        update_entities(deltatime);
-        handle_input();
-        display_hotbar();
-
+        else
+        {
+            menu.update();
+            menu.draw();
+        }
         EndDrawing();
     }
     cleanup_entities(); 
     world.free_world();
+    if(fluid_simulator != nullptr)
+    {
+        delete fluid_simulator;
+        fluid_simulator = nullptr;
+    }
+    unload_texture();
     CloseWindow();
 }

@@ -16,6 +16,8 @@ Entity::Entity(Vector position, float health)
     flee_direction = init_vector();
     flee_timer = 0.0f;
     last_attacker_position = init_vector();
+    is_hit = false;
+    hit_timer = 0;
 }
 
 Entity::~Entity()
@@ -33,9 +35,10 @@ void Entity::take_damage(float damage, Vector attacker_position)
         health = 0;
         is_alive = false;
     }
-
     last_attacker_position = attacker_position;
     start_fleeing(attacker_position);
+    is_hit = true;
+    hit_timer = HIT_FLASH_DURATION;
 }
 
 void Entity::start_fleeing(Vector danger_position)
@@ -63,17 +66,29 @@ bool Entity::is_entity_fleeing()
     return is_fleeing;
 }
 
+void Entity::update_hit_flash(float deltatime)
+{
+    if(is_hit)
+    {
+        hit_timer -= deltatime;
+        if(hit_timer <= 0.0f)
+        {
+            is_hit = false;
+            hit_timer = 0.0f;
+        }
+    }
+}
+
 bool Entity::check_collision(World& world)
 {
-    float epsilon = 0.1;
-    float half_width = width / 2.0f;
+    float epsilon = 0.01;
     
-    int min_x = (int)floor(position.x - half_width);
-    int max_x = (int)floor(position.x + half_width);
+    int min_x = (int)floor(position.x - width);
+    int max_x = (int)floor(position.x + width);
     int min_y = (int)floor(position.y - height + epsilon);
     int max_y = (int)floor(position.y - epsilon);
-    int min_z = (int)floor(position.z - half_width);
-    int max_z = (int)floor(position.z + half_width);
+    int min_z = (int)floor(position.z - width);
+    int max_z = (int)floor(position.z + width);
     
     for(int x = min_x; x <= max_x; x++)
     {
@@ -89,6 +104,29 @@ bool Entity::check_collision(World& world)
         }
     }
     return false;
+}
+
+Color Entity::get_hit_color()
+{
+    if(!is_hit || hit_timer <= 0.0f)
+    {
+        return WHITE;
+    }
+    float blink_speed = 10.0f;
+    float blink_value = sinf(hit_timer * blink_speed * 3.1415926f);
+
+    if(blink_value > 0.0f)
+    {
+        float intensity = hit_timer / HIT_FLASH_DURATION;
+        unsigned char red = 225;
+        unsigned char green = (unsigned char)(255 * (1.0f - intensity));
+        unsigned char blue = (unsigned char)(255 * (1.0f - intensity));
+        return (Color){red, green, blue, 255};
+    }
+    else
+    {
+        return WHITE;
+    }
 }
 
 Vector Entity::get_position()
@@ -129,9 +167,9 @@ void Entity::fix_entity_stuck(World& world)
         };
 
         bool fixed = false;
-        for(Vector c : candidates)
+        for(Vector candidate : candidates)
         {
-            position = c;
+            position = candidate;
             if(!check_collision(world))
             {
                 fixed = true;
@@ -142,7 +180,6 @@ void Entity::fix_entity_stuck(World& world)
         {
             return;
         }
-
         original.y += lift_step;
         position = original;
     }
@@ -162,68 +199,77 @@ void Entity::fix_entity_stuck(World& world)
     }
 }
 
-bool Entity::on_the_ground(Vector& position, Vector& gravity, float height, World& world, float deltatime)
+bool Entity::on_the_ground(Vector& position,Vector& gravity, float height, World& world, float deltatime)
 {
     gravity.y -= 9.8f * deltatime;
-    if(gravity.y < -20.0f)
+    if (gravity.y < -20.0f)
     {
         gravity.y = -20.0f;
     }
-    
+
     float next_y = position.y + gravity.y * deltatime;
-    int foot_x = (int)floor(position.x);
-    int foot_y_next = (int)floor(next_y - height); 
-    int foot_z = (int)floor(position.z);
-    
-    Block below = world.get_block(foot_x, foot_y_next, foot_z);
-    
-    if(below.is_solid() && gravity.y < 0)
-    {
-        position.y = (float)(foot_y_next + 1) + height;
-        gravity.y = 0;
-        return true;
-    }
-    else
+
+    if (gravity.y > 0.0f)
     {
         position.y = next_y;
         return false;
     }
+
+    float foot_y = next_y - height;
+
+    int min_x = (int)floor(position.x - width);
+    int max_x = (int)floor(position.x + width);
+    int min_z = (int)floor(position.z - width);
+    int max_z = (int)floor(position.z + width);
+    int foot_block_y = (int)floor(foot_y);
+
+    for (int x = min_x; x <= max_x; x++)
+    {
+        for (int z = min_z; z <= max_z; z++)
+        {
+            if (world.get_block(x, foot_block_y, z).is_solid())
+            {
+                position.y = (float)(foot_block_y + 1) + height;
+                gravity.y = 0.0f;
+                return true;
+            }
+        }
+    }
+    position.y = next_y;
+    return false;
 }
+
 
 void Entity::handle_movement(Vector move, World &world)
 {
     const float step_height = 0.6f;
-
-    Vector start_x = position;
+    Vector original = position;
     position.x += move.x;
-
-    if (check_collision(world)) 
+    if (check_collision(world))
     {
-        position = start_x;
+        position = original;
         position.y += step_height;
         position.x += move.x;
-
-        if (check_collision(world)) 
+        if (check_collision(world))
         {
-            position = start_x;
+            position = original;
         }
     }
+    original = position;
 
-    Vector start_z = position;
     position.z += move.z;
-
-    if (check_collision(world)) 
+    if (check_collision(world))
     {
-        position = start_z;
+        position = original;
         position.y += step_height;
         position.z += move.z;
-
-        if (check_collision(world)) 
+        if (check_collision(world))
         {
-            position = start_z;
+            position = original;
         }
     }
 }
+
 
 bool Entity::ray_intersects(Vector ray_origin, Vector ray_direction, float max_distance, float& hit_distance)
 {
@@ -360,6 +406,7 @@ void Sheep::update(float deltatime, World& world)
     {
         return;
     }
+    update_hit_flash(deltatime);
     
     if(check_collision(world))
     {
@@ -406,12 +453,26 @@ void Sheep::render()
         return;
     }
 
-    Color body_color = is_fleeing ? (Color){255, 200, 200, 255} : WHITE;
+    Color hit_color = get_hit_color();
+    Color body_color;
+
+    if(is_hit && hit_timer > 0)
+    {
+        body_color = hit_color;
+    }
+    else if(is_fleeing)
+    {
+        body_color = (Color){255, 200, 200, 255};
+    }
+    else
+    {
+        body_color = WHITE;
+    }
     
-    DrawCube({(float)position.x, (float)position.y - 0.5f, (float)position.z}, 0.7f, 0.5f, 0.5f, WHITE);
+    DrawCube({(float)position.x, (float)position.y - 0.5f, (float)position.z}, 0.7f, 0.5f, 0.5f, body_color);
     DrawCubeWires({(float)position.x, (float)position.y - 0.5f, (float)position.z}, 0.7f, 0.5f, 0.5f, GRAY);
     
-    DrawCube({(float)position.x, (float)position.y - 0.25f, (float)position.z + 0.4f}, 0.4f, 0.4f, 0.4f, WHITE);
+    DrawCube({(float)position.x, (float)position.y - 0.25f, (float)position.z + 0.4f}, 0.4f, 0.4f, 0.4f, body_color);
     DrawCubeWires({(float)position.x, (float)position.y - 0.25f, (float)position.z + 0.4f}, 0.4f, 0.4f, 0.4f, GRAY);
     
     float leg_size = 0.12f;
@@ -427,17 +488,14 @@ void Sheep::render()
 Villager::Villager(Vector position) : Entity(position, 40)
 {
     player_position = init_vector(0, 0, 0);
-    detection_range = 8.0f;
     width = 0.6f;
     height = 1.8f;
 
     current_state = WANDER;
     previous_state = WANDER;
     state_timer = 0.0f;
-    idle_duration = 2.0f;
     wander_timer = 0.0f;
     wander_direction = init_vector();
-    interaction_timer = 0.0f;
 }
 
 void Villager::set_target(Vector target)
@@ -463,9 +521,6 @@ void Villager::change_state(villager_state new_state)
             break;
         case FLEE:
             flee_timer = 4.0f;
-            break;
-        case INTERACT:
-            interaction_timer = 2.0f;
             break;
         default:
             break;
@@ -503,10 +558,6 @@ void Villager::update_state(float deltatime)
             {
                 change_state(FLEE);
             }
-            else if(distance_to_player < 2.5f)
-            {
-                change_state(INTERACT);
-            }
             else if(distance_to_player > FOLLOW_DISTANCE_MAX)
             {
                 change_state(WANDER);
@@ -517,21 +568,6 @@ void Villager::update_state(float deltatime)
             if(!is_fleeing || flee_timer <= 0)
             {
                 is_fleeing = false;
-                change_state(WANDER);
-            }
-            break;
-            
-        case INTERACT:
-            if(is_fleeing)
-            {
-                change_state(FLEE);
-            }
-            else if(distance_to_player > 4.0f)
-            {
-                change_state(FOLLOW_PLAYER);
-            }
-            else if(state_timer > interaction_timer)
-            {
                 change_state(WANDER);
             }
             break;
@@ -594,11 +630,6 @@ void Villager::handle_flee_state(float deltatime, World& world)
     }
 }
 
-void Villager::handle_interact_state(float deltatime, World& world)
-{
-    
-}
-
 void Villager::execute_current_state(float deltatime, World& world)
 {
     switch(current_state)
@@ -612,9 +643,6 @@ void Villager::execute_current_state(float deltatime, World& world)
         case FLEE:
             handle_flee_state(deltatime, world);
             break;
-        case INTERACT:
-            handle_interact_state(deltatime, world);
-            break;
     }
 }
 
@@ -625,6 +653,8 @@ void Villager::update(float deltatime, World& world)
     {
         return;
     }
+
+    update_hit_flash(deltatime);
 
     if(check_collision(world))
     {
@@ -664,17 +694,32 @@ void Villager::render()
     {
         return;
     }
-    DrawCube({(float)position.x, (float)position.y - 0.9f, (float)position.z}, 0.5f, 1.0f, 0.35f, BROWN);
+
+    Color hit_color = get_hit_color();
+    Color body_color = BROWN;
+    Color head_color = BEIGE;
+    Color arm_color = BROWN;
+    Color leg_color = DARKBROWN;
+
+    if(is_hit && hit_timer > 0)
+    {
+        body_color = hit_color;
+        head_color = hit_color;
+        arm_color = hit_color;
+        leg_color = hit_color;
+    }
+
+    DrawCube({(float)position.x, (float)position.y - 0.9f, (float)position.z}, 0.5f, 1.0f, 0.35f, body_color);
     DrawCubeWires({(float)position.x, (float)position.y - 0.9f, (float)position.z}, 0.5f, 1.0f, 0.35f, DARKBROWN);
     
-    DrawCube({(float)position.x, (float)position.y - 0.2f, (float)position.z}, 0.6f, 0.6f, 0.6f, BEIGE);
+    DrawCube({(float)position.x, (float)position.y - 0.2f, (float)position.z}, 0.6f, 0.6f, 0.6f, head_color);
     DrawCubeWires({(float)position.x, (float)position.y - 0.2f, (float)position.z}, 0.6f, 0.6f, 0.6f, DARKGRAY);
     
     DrawCube({(float)position.x, (float)position.y - 0.2f, (float)position.z + 0.4f}, 0.2f, 0.3f, 0.15f, (Color){210, 170, 130, 255});
     
-    DrawCube({(float)position.x - 0.4f, (float)position.y - 0.9f, (float)position.z}, 0.2f, 0.8f, 0.2f, BROWN);
-    DrawCube({(float)position.x + 0.4f, (float)position.y - 0.9f, (float)position.z}, 0.2f, 0.8f, 0.2f, BROWN);
+    DrawCube({(float)position.x - 0.4f, (float)position.y - 0.9f, (float)position.z}, 0.2f, 0.8f, 0.2f, arm_color);
+    DrawCube({(float)position.x + 0.4f, (float)position.y - 0.9f, (float)position.z}, 0.2f, 0.8f, 0.2f, arm_color);
     
-    DrawCube({(float)position.x - 0.15f, (float)position.y - 1.5f, (float)position.z}, 0.25f, 0.7f, 0.25f, DARKBROWN);
-    DrawCube({(float)position.x + 0.15f, (float)position.y - 1.5f, (float)position.z}, 0.25f, 0.7f, 0.25f, DARKBROWN);
+    DrawCube({(float)position.x - 0.15f, (float)position.y - 1.5f, (float)position.z}, 0.25f, 0.7f, 0.25f, leg_color);
+    DrawCube({(float)position.x + 0.15f, (float)position.y - 1.5f, (float)position.z}, 0.25f, 0.7f, 0.25f, leg_color);
 }
